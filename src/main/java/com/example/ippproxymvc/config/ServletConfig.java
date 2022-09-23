@@ -9,6 +9,6 @@ import org.springframework.context.annotation.Configuration;
 public class ServletConfig {
     @Bean
     public ServletRegistrationBean ippProxyServletRegistrationBean() {
-        return new ServletRegistrationBean(new IppProxyServlet(), "/ipp-proxy-servlet/*");
+        return new ServletRegistrationBean(new IppProxyServlet(), "/printers/*");
     }
 }

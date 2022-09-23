@@ -1,11 +1,13 @@
 package com.example.ippproxymvc.web.servlets;
 
 import com.hp.jipp.encoding.AttributeGroup;
+import com.hp.jipp.encoding.AttributeType;
 import com.hp.jipp.encoding.IppInputStream;
 import com.hp.jipp.encoding.IppOutputStream;
 import com.hp.jipp.encoding.IppPacket;
 import com.hp.jipp.encoding.MutableAttributeGroup;
 import com.hp.jipp.encoding.Tag;
+import com.hp.jipp.model.Operation;
 import com.hp.jipp.model.Types;
 import com.hp.jipp.trans.IppClientTransport;
 import com.hp.jipp.trans.IppPacketData;
@@ -16,15 +18,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.Proxy.Type;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -49,7 +57,7 @@ public class IppProxyServlet extends HttpServlet {
 
         //String printerUrl = "http://localhost:631/printers/IPPTest1";
         //String printerUrl = "http://localhost:631/printers/localcups";
-        String printerUrl = "https://ipp.staging.escrip-safe.com:443/printers/r2m83m8x";
+        String printerUrl = "http://localhost:631/printers/test_ldp";
         URI uri = URI.create(printerUrl);
         URL url = new URL(printerUrl);
 
@@ -74,19 +82,14 @@ public class IppProxyServlet extends HttpServlet {
                 operationGroup);
         String requestString = generatedPacket.prettyPrint(60, "    ");
         logger.info("Request from packets. {}", requestString);
-
-   /*     if(generatedPacket.getOperation().equals(Operation.sendDocument)) {
-
-            req.getParts().stream().forEach(part -> { logger.info("Part in request {}", part.getName()); });
-        }*/
-
-        IppPacketData packetData = new IppPacketData(generatedPacket, requestStream);
+        IppPacketData packetData = new IppPacketData(generatedPacket, req.getInputStream());
 
         //Create HTTP Request to Post data to forwarding endpoint
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(6 * 1000);
         connection.setRequestMethod("POST");
         connection.addRequestProperty("Content-type", "application/ipp");
+        connection.setRequestProperty("Accept", "application/ipp");
         connection.setChunkedStreamingMode(0);
         connection.setDoOutput(true);
         try (IppOutputStream output = new IppOutputStream(connection.getOutputStream())) {
@@ -98,10 +101,13 @@ public class IppProxyServlet extends HttpServlet {
             }
         }
         // Read the response from the input stream
+        Map<String, List<String>> responseHeaders = connection.getHeaderFields();
+        logger.info("headers {} ", responseHeaders);
         ByteArrayOutputStream responseBytes = new ByteArrayOutputStream();
         try (InputStream response = connection.getInputStream()) {
             copy(response, responseBytes);
         }
+
         //Generate response for caller
         IppInputStream responseInput = new IppInputStream(new ByteArrayInputStream(responseBytes.toByteArray()));
         IppPacketData responsePacketData = new IppPacketData(responseInput.readPacket(), responseInput);
@@ -109,6 +115,20 @@ public class IppProxyServlet extends HttpServlet {
         logger.info("Response from server. {}", responseString);
         resp.setStatus(200);
         resp.setContentType("application/ipp");
+        resp.setCharacterEncoding("utf-8");
+        for (Map.Entry<String, List<String>> entry : responseHeaders.entrySet()) {
+            if (StringUtils.isNotBlank(entry.getKey())) {
+                if (!(entry.getKey().equalsIgnoreCase("Content-Type") ||
+                        entry.getKey().equalsIgnoreCase("Date") ||
+                        entry.getKey().equalsIgnoreCase("Server"))) {
+                    logger.info("setting header {}", new LogBuilder().add("key", entry.getKey())
+                            .add("value", StringUtils.join(entry.getValue(), ";")));
+                    resp.setHeader(entry.getKey(), StringUtils.join(entry.getValue(), ";"));
+                }
+            }
+        }
+
+        resp.setHeader("Connection", "keep-alive");
         resp.getWriter().write(responseBytes.toString());
         resp.getWriter().flush();
     }
