@@ -7,8 +7,10 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class ServletConfig {
+
     @Bean
     public ServletRegistrationBean ippProxyServletRegistrationBean() {
         return new ServletRegistrationBean(new IppProxyServlet(), "/printers/*");
     }
+
 }
